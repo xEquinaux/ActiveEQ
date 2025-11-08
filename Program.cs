@@ -61,6 +61,7 @@ public class Game : Direct2D
 	bool mainMenu = true;
 	bool init = false;
 	bool initCapture = false;
+	bool[] hold = new bool[8];
 	EQ[] eq = new EQ[8];
 	Pen pen = new Pen(Color.GreenYellow, 4f);
 	Point MouseScreen;
@@ -74,14 +75,15 @@ public class Game : Direct2D
 
 	public override void Initialize()
 	{
-		eq[0].position.X = 100;
-		eq[1].position.X = 200;
-		eq[2].position.X = 400;
-		eq[3].position.X = 800;
-		eq[4].position.X = 1200;
-		eq[5].position.X = 2400;
-		eq[6].position.X = 4800;
-		eq[7].position.X = 9600;
+		int scale = 9600 / width;
+		eq[0].position.X = (int)(100 * 0.82M);
+		eq[1].position.X = 200  / 1;
+		eq[2].position.X = 400  / 2;
+		eq[3].position.X = 800  / 3;
+		eq[4].position.X = 1200 / 4;     // 280
+		eq[5].position.X = 2400 / 6;	 // 400
+		eq[6].position.X = 4800 / 8;
+		eq[7].position.X = 9600 / 12;	 // 800
 		for (int i = 0; i < eq.Length; i++)
 		{
 			eq[i].position.Y = height / 2;
@@ -126,43 +128,51 @@ public class Game : Direct2D
 
 		for (int i = 0; i < eq.Length; i++)
 		{
-			if (LeftMouse() && eq[i].hitbox(size).Contains(MouseScreen))
+			if (hold.All(t => !t) && LeftMouse() && eq[i].hitbox(size).Contains(MouseScreen))
 			{
-				eq[i].position = Interface.RelativeMouse(eq[i].hitbox(size), MouseScreen);
-				if (eq[0].position.X <= size)
+				hold[i] = true;
+			}
+			if (!LeftMouse())
+			{
+				hold[i] = false;
+			}
+			if (hold[i])
+			{ 
+				var rec = Interface.Drag(eq[i].hitbox(size), MouseScreen, LeftMouse());
+				eq[i].position = new Point(rec.X, rec.Y);
+				if (eq[0].position.X <= size / 2)
 				{
-					eq[0].position.X = size;
+					eq[0].position.X = size / 2;
 				}
 				if (eq[7].position.X >= width)
 				{
-					eq[7].position.X = width - size;
+					eq[7].position.X = width;
 				}
 				if (i == 0)
 				{
 					if (eq[0].position.X >= eq[1].position.X)
 					{
-						eq[0].position.X = eq[1].position.X - size;
+						eq[0].position.X = eq[1].position.X;
 					}
 				}
 				else if (i == eq.Length - 1)
 				{
 					if (eq[eq.Length - 1].position.X <= eq[eq.Length - 2].position.X)
 					{
-						eq[eq.Length - 1].position.X = eq[eq.Length - 2].position.X + size;
+						eq[eq.Length - 1].position.X = eq[eq.Length - 2].position.X;
 					}
 				}
 				else if (i > 0 && i < eq.Length - 1)
 				{
-					if (eq[i].position.X >= eq[i + 1].position.X)
+					if (eq[i].position.X >= eq[i + 1].position.X - size / 2)
 					{
-						eq[i].position.X = eq[i + 1].position.X - size;
+						eq[i].position.X = eq[i + 1].position.X - size / 2;
 					}
-					if (eq[i].position.X <= eq[i - 1].position.X)
+					if (eq[i].position.X <= eq[i - 1].position.X + size / 2)
 					{
-						eq[i].position.X = eq[i - 1].position.X + size;
+						eq[i].position.X = eq[i - 1].position.X + size / 2;
 					}
 				}
-				break;
 			}
 		}
 
@@ -197,7 +207,7 @@ public class Game : Direct2D
 		{
 			initCapture = true;
 			var date = DateTime.Now;
-			record = new WaveFileWriter($"{date.ToString().Replace("\\", "").Replace("/", "")}", capture.WaveFormat);
+			record = new WaveFileWriter($"{date.ToFileTime()}.wav", capture.WaveFormat);
 		}
 		float[] read = new float[e.BytesRecorded];
         Buffer.BlockCopy(e.Buffer, 0, read, 0, e.BytesRecorded);
@@ -242,8 +252,9 @@ public class Game : Direct2D
 				{
 					if (!mainMenu)
 					{
-						graphics.FillRectangle(Brushes.Black, new Rectangle(0, 0, width, height));
-						graphics.FillRectangle(Brushes.Green, new Rectangle(0, height - 30, (int)(width * max), 30));
+						buffered.Graphics.FillRectangle(Brushes.Black, new Rectangle(0, 0, width, height));
+						buffered.Graphics.DrawRectangle(Pens.White, 0, 0, 1, 1);
+						buffered.Graphics.FillRectangle(Brushes.Green, new Rectangle(0, height - 24, (int)(width * max), 24));
 						Point[] point = new Point[]
 						{
 							new Point(0, height / 2),
@@ -257,24 +268,24 @@ public class Game : Direct2D
 							eq[7].position,
 							new Point(width, height / 2)
 						};
-						graphics.DrawCurve(pen, point);
+						buffered.Graphics.DrawCurve(pen, point);
 						for (int i = 0; i < eq.Length; i++)
 						{
-							graphics.FillRoundedRectangle(Brushes.White, eq[i].hitbox(size), new Size(5, 5));
-							graphics.DrawString((i + 1).ToString(), new Font("Helvetica", 12f), Brushes.Gray, eq[i].hitbox(size).Left, eq[i].hitbox(size).Top);
-							graphics.DrawString($"{eq[i].Frequency}, {eq[i].Gain(height)}", new Font("Helvetica", 12f), Brushes.Gray, eq[i].hitbox(size).Left, eq[i].hitbox(size).Bottom);
+							buffered.Graphics.FillRoundedRectangle(Brushes.White, eq[i].hitbox(size), new Size(5, 5));
+							buffered.Graphics.DrawString((i + 1).ToString(), new Font("Helvetica", 12f), Brushes.Gray, eq[i].hitbox(size).Left, eq[i].hitbox(size).Top);
+							buffered.Graphics.DrawString($"{eq[i].Frequency()}, {Math.Round(eq[i].Gain(height), 2)}", new Font("Helvetica", 12f), Brushes.Gray, eq[i].hitbox(size).Left, eq[i].hitbox(size).Bottom);
 						}
 						if (initCapture)
 						{ 
-							graphics.DrawString("Recording on", new Font("Helvetica", 18f), Brushes.White, new Point(0, height - 42));
+							buffered.Graphics.DrawString("Recording on", new Font("Helvetica", 18f), Brushes.White, new Point(0, height - 50));
 						}
 						else
 						{
-							graphics.DrawString("Recording off", new Font("Helvetica", 18f), Brushes.Gray, new Point(0, height - 42));
+							buffered.Graphics.DrawString("Recording off", new Font("Helvetica", 18f), Brushes.Gray, new Point(0, height - 50));
 						}
-						graphics.DrawString("Commands: R to start recording, S to stop recording", new Font("Helvetica", 14f), Brushes.Gray, new Point(0, height - 24));
+						buffered.Graphics.DrawString("Commands: R to start recording, S to stop recording, X to reset", new Font("Helvetica", 12f), Brushes.Gray, new Point(0, height - 24));
 					}
-					else this.TitleScreen(graphics);
+					else this.TitleScreen(buffered.Graphics);
 				}
 				buffered.Render();
 			}
@@ -354,9 +365,9 @@ public class Game : Direct2D
 	}
 
 	public struct EQ
-	{
-		public int Frequency(int width = 800, int maxFreq = 9600) => (X + maxFreq) / width;
-		public float Gain(float height = 400) => (position.Y - height / 2) / height * -2;
+	{																	 
+		public int Frequency(int width = 800, int maxFreq = 9600) => (int)(X * (maxFreq / width) * ((float)X / width));
+		public float Gain(float height = 400) => (float)(position.Y - height / 2f) / height * -2f * 6f;
 		public int X => position.X;
 		public int Y => position.Y;
 		public Point position;
