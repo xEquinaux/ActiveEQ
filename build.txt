@@ -1,1 +1,9 @@
-﻿0.0.11.0
+﻿0.0.18.0
+
+Changelog
+0.0.11.0 -> 0.0.12.0
+Changed
+-> No more x coordinate movement limit
+-> Fixed y coordinate limit
+-> Moved from 6 decible limit to 10
+-> Save file names

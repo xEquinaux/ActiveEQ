@@ -26,6 +26,9 @@ using System.Threading;
 using Buffer = System.Buffer;
 using static System.Runtime.InteropServices.JavaScript.JSType;
 using static REWD.FoundationR.Foundation;
+using static cotf.Game;
+using System.IO;
+using SharpDX.Win32;
 
 namespace cotf;
 
@@ -77,7 +80,7 @@ public class Game : Direct2D
 	{
 		int scale = 9600 / width;
 		eq[0].position.X = (int)(100 * 0.82M);
-		eq[1].position.X = 200  / 1;
+		eq[1].position.X = 150  / 1;
 		eq[2].position.X = 400  / 2;
 		eq[3].position.X = 800  / 3;
 		eq[4].position.X = 1200 / 4;     // 280
@@ -148,6 +151,15 @@ public class Game : Direct2D
 				{
 					eq[7].position.X = width;
 				}
+				if (eq[i].position.Y >= height)
+				{
+					eq[i].position.Y = height;
+				}
+				if (eq[i].position.Y <= 0)
+				{
+					eq[i].position.Y = 0;
+				}
+				/*	Movement limit
 				if (i == 0)
 				{
 					if (eq[0].position.X >= eq[1].position.X)
@@ -172,7 +184,7 @@ public class Game : Direct2D
 					{
 						eq[i].position.X = eq[i - 1].position.X + size / 2;
 					}
-				}
+				} */
 			}
 		}
 
@@ -199,15 +211,15 @@ public class Game : Direct2D
 	{
 		// stop recording here
 		record.Close();
+		initCapture = false;
 	}
 
-	private void Capture_DataAvailable(object? sender, WaveInEventArgs e)
+	private void Capture_DataAvailable(object sender, WaveInEventArgs e)
 	{
 		if (!initCapture)
 		{
 			initCapture = true;
-			var date = DateTime.Now;
-			record = new WaveFileWriter($"{date.ToFileTime()}.wav", capture.WaveFormat);
+			InitWriter();
 		}
 		float[] read = new float[e.BytesRecorded];
         Buffer.BlockCopy(e.Buffer, 0, read, 0, e.BytesRecorded);
@@ -229,15 +241,23 @@ public class Game : Direct2D
 		// interpret as 16 bit audio
 		for (int index = 0; index < e.BytesRecorded; index += 2)
 		{
-			short sample = (short)((e.Buffer[index + 1] << 8) |
+			float sample = (float)((e.Buffer[index + 1] << 8) |
 									e.Buffer[index + 0]);
 			// to floating point
-			var sample32 = sample/32768f;
+			float sample32 = sample/32768f;
 			// absolute value 
 			if (sample32 < 0) sample32 = -sample32;
 			// is this the max value?
-			if (sample32 > max) max = sample32;
+			if (sample32 > max) max = (float)Math.Clamp(sample32 - 1d, 0d, 1d);
 		}
+	}
+
+
+	private void InitWriter()
+	{
+		DateTime now = DateTime.Now;
+		string name = "Recorded-on_" + $"{now.ToString().Replace('/', '-').Replace(':', '-')}" + ".wav";
+		record = new WaveFileWriter(name, capture.WaveFormat);
 	}
 
 	public override void Draw(DeviceContext rt)
@@ -268,7 +288,7 @@ public class Game : Direct2D
 							eq[7].position,
 							new Point(width, height / 2)
 						};
-						buffered.Graphics.DrawCurve(pen, point);
+						buffered.Graphics.DrawCurve(pen, point.ToList().OrderBy(t => t.X).ToArray());
 						for (int i = 0; i < eq.Length; i++)
 						{
 							buffered.Graphics.FillRoundedRectangle(Brushes.White, eq[i].hitbox(size), new Size(5, 5));
@@ -367,7 +387,7 @@ public class Game : Direct2D
 	public struct EQ
 	{																	 
 		public int Frequency(int width = 800, int maxFreq = 9600) => (int)(X * (maxFreq / width) * ((float)X / width));
-		public float Gain(float height = 400) => (float)(position.Y - height / 2f) / height * -2f * 6f;
+		public float Gain(float height = 400) => (float)(position.Y - height / 2f) / height * -2f * 10f;
 		public int X => position.X;
 		public int Y => position.Y;
 		public Point position;
