@@ -29,6 +29,7 @@ using static REWD.FoundationR.Foundation;
 using static cotf.Game;
 using System.IO;
 using SharpDX.Win32;
+using System.Runtime.CompilerServices;
 
 namespace cotf;
 
@@ -58,19 +59,27 @@ public class Game : Direct2D
 	}
 
 	float max = 0;
-	int width = 800, height = 400;
+	static int width = 800, height = 400;
 	int size = 30;
+	int scale => 9600 / width;
+	internal static int keyPress;
 	bool showTitle = false;
 	bool mainMenu = true;
 	bool init = false;
+	bool init2 = false;
+	bool init3 = false;
 	bool initCapture = false;
 	bool[] hold = new bool[8];
-	EQ[] eq = new EQ[8];
+	internal static EQ[] eq = new EQ[8];
 	Pen pen = new Pen(Color.GreenYellow, 4f);
-	Point MouseScreen;
+	internal static Point MouseScreen;
 	BiQuadFilter[] filter = new BiQuadFilter[8];
 	WasapiCapture capture;
 	WaveFileWriter record;
+	BinaryWriter write;
+	BinaryReader read;
+	FileStream file;
+	DialogBox dialog;
 
 	public override void LoadResources()
 	{
@@ -78,7 +87,6 @@ public class Game : Direct2D
 
 	public override void Initialize()
 	{
-		int scale = 9600 / width;
 		eq[0].position.X = (int)(100 * 0.82M);
 		eq[1].position.X = 150  / 1;
 		eq[2].position.X = 400  / 2;
@@ -91,7 +99,12 @@ public class Game : Direct2D
 		{
 			eq[i].position.Y = height / 2;
 		}
-		Init();
+		if (!init2)
+		{ 
+			init2 = true;
+			Init();
+		}
+		dialog = DialogBox.CreateResource();
 	}
 
 	public override void Update()
@@ -108,9 +121,14 @@ public class Game : Direct2D
 		Vector2 point = new Vector2(mouse.X, mouse.Y) - new Vector2(window.Left, window.Top) - new Vector2(5, 30f);
 		MouseScreen = new Point((int)Math.Max(point.X - (float)Game.Position.X, 0f), (int)Math.Max(point.Y - (float)Game.Position.Y, 0f));//  -5 to X coord, -30 to Y coord due to WPF factor
 
+		int keyPress = 0;
 		if (!showTitle && CotF_dev.Keyboard.IsKeyPressed((int)VIRTUALKEY.VK_RETURN))
 		{
 			showTitle = true;
+		}
+		if (CotF_dev.Keyboard.IsKeyPressed((int)VIRTUALKEY.VK_ESCAPE))
+		{
+			Environment.Exit(1);
 		}
 
 		if (CotF_dev.Keyboard.IsKeyPressed((int)VIRTUALKEY.VK_R))
@@ -128,6 +146,37 @@ public class Game : Direct2D
 				capture.StopRecording();
 			}
 		}
+		else if (CotF_dev.Keyboard.IsKeyPressed((int)VIRTUALKEY.VK_X))
+		{
+			Initialize();
+		}
+		else if (
+				Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_1) ||
+				Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_2) ||
+				Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_3) ||
+				Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_4) ||
+				Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_5) ||
+				Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_6) ||
+				Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_7) ||
+				Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_8) ||
+				Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_9)
+		){ 	 // save
+			try
+			{
+				string name = "Stored_parameters_" + keyPress + ".sav";
+				string message = "Here are the options for save/load.\nYou could manually delete the saved settings files, \nor use this instead to access data.\n\n" +
+					"Save = save/overwrite the " + name + " file.\n" +
+					"Load = load the " + name + "file.\n" +
+					"Cancel = do nothing.";
+				dialog.Show("Save/load dialog", message);
+			}
+			catch (Exception e) 
+			{ 
+				dialog.Show("Exception thrown", e.Message); 
+				return; 
+			}
+		}
+		dialog.Update();
 
 		for (int i = 0; i < eq.Length; i++)
 		{
@@ -303,7 +352,8 @@ public class Game : Direct2D
 						{
 							buffered.Graphics.DrawString("Recording off", new Font("Helvetica", 18f), Brushes.Gray, new Point(0, height - 50));
 						}
-						buffered.Graphics.DrawString("Commands: R to start recording, S to stop recording, X to reset", new Font("Helvetica", 12f), Brushes.Gray, new Point(0, height - 24));
+						buffered.Graphics.DrawString("Commands: R to start recording, S to stop recording, X to reset, 1-9 to save, ESC to close", new Font("Helvetica", 12f), Brushes.Gray, new Point(0, height - 24));
+						dialog.DrawDialog(buffered.Graphics);
 					}
 					else this.TitleScreen(buffered.Graphics);
 				}
@@ -392,5 +442,139 @@ public class Game : Direct2D
 		public int Y => position.Y;
 		public Point position;
 		public Rectangle hitbox(int size = 30) => new Rectangle(position.X - size / 2, position.Y - size / 2, size, size);
+	}
+
+	public class DialogBox
+	{
+		public bool active; 
+		public bool closed;
+		public int width, height, left, top, padding;
+		public string? heading;
+		public string? message;
+		public Button? load, save, cancel;
+		public static DialogBox CreateResource()
+		{
+			var box = new DialogBox();
+			box.left = 20;
+			box.width = Game.width;
+			box.height = Game.height;
+			box.padding = 40;
+			box.load = new Button("Save", new Rectangle(box.left, Game.height, 80, 24)) { parent = box };
+			box.save = new Button("Load", new Rectangle(box.left + 84, Game.height, 80, 24)) { parent = box };
+			box.cancel = new Button("Cancel", new Rectangle(box.left + 168, Game.height, 80, 24)) { parent = box };
+			return box;
+		}
+		public static DialogBox CreateResource(string heading, string message)
+		{
+			var box = new DialogBox();
+			box.heading = heading;
+			box.message = message;
+			box.left = 20;
+			box.width = Game.width;
+			box.height = Game.height;
+			box.padding = 40;
+			box.load = new Button("Save", new Rectangle(box.left, Game.height - 32, 80, 24)) { parent = box };
+			box.save = new Button("Load", new Rectangle(box.left + 84, Game.height - 32, 80, 24)) { parent = box };
+			box.cancel = new Button("Cancel", new Rectangle(box.left + 168, Game.height - 32, 80, 24)) { parent = box };
+			return box;
+		}
+		public void Update()
+		{
+			if (active)
+			{
+				load?.Update();
+				save?.Update();
+				cancel?.Update();
+			}
+		}
+		public void DrawDialog(Graphics graphics)
+		{
+			if (active)
+			{
+				graphics.FillRectangle(Brushes.DarkGray, 0, 0, width, height);
+				graphics.DrawString(heading, new Font("Helvetica", 14f), Brushes.White, new Point(left, top));
+				graphics.DrawString(message, new Font("Helvetica", 12f), Brushes.White, new Point(left, top + padding));
+				load?.Draw(graphics);
+				save?.Draw(graphics);
+				cancel?.Draw(graphics);
+			}
+		}
+		public void Show()
+		{
+			active = true;
+		}
+		public void Show(string heading, string message)
+		{
+			this.heading = heading;
+			this.message = message;
+			active = true;
+		}
+	}
+	public class Button
+	{
+		public int margin = 2;
+		int top, right, bottom, left;
+		public string? text;
+		public Rectangle hitbox;
+		public DialogBox? parent;
+		BinaryWriter? write;
+		BinaryReader? read;
+		FileStream? file;
+		public Button(string text, Rectangle hitbox)
+		{
+			this.text = text;
+			this.hitbox = hitbox;
+			top = hitbox.Top;
+			right = hitbox.Right;
+			bottom = hitbox.Bottom;
+			left = hitbox.Left;
+		}
+		public void Update()
+		{
+			if (parent != null && parent.active)
+			{ 
+				if (LeftMouse() && hitbox.Contains(Game.MouseScreen))
+				{
+					switch (text)
+					{
+						case "Load":
+							file = new FileStream("Stored_parameters_" + keyPress.ToString() + ".sav", FileMode.Open);
+							read = new BinaryReader(file);
+							for (int i = 0; i < eq.Length; i++)
+							{
+								eq[i].position = new Point(read.ReadInt32(), read.ReadInt32());
+							}
+							read.Dispose();
+							file.Dispose();
+							goto default;
+						case "Save":
+							file = new FileStream("Stored_parameters_" + keyPress.ToString() + ".sav", FileMode.Create);
+							write = new BinaryWriter(file);
+							for (int i = 0; i < eq.Length; i++)
+							{
+								write.Write(eq[i].X);
+								write.Write(eq[i].Y);
+							}
+							write.Dispose();
+							file.Dispose();
+							goto default;
+						case "Cancel":
+							goto default;
+						default:
+							if (parent != null)
+							parent.active = false;
+							break;
+					}
+				}
+			}
+		}
+		public void Draw(Graphics graphics)
+		{		   
+			if (parent != null && parent.active)
+			{ 
+				graphics.FillRectangle(Brushes.White, hitbox = new Rectangle(left + margin, top + margin - 32, hitbox.Width, hitbox.Height));
+				graphics.DrawString(text, new Font("Helvetica", 11f), Brushes.Black, new Point(left + margin, top + margin - 32));
+			}
+		}
 	}
 }
