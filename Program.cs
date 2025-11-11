@@ -30,6 +30,10 @@ using static cotf.Game;
 using System.IO;
 using SharpDX.Win32;
 using System.Runtime.CompilerServices;
+using Microsoft.VisualBasic.ApplicationServices;
+using System.ComponentModel.Design;
+using System.Security.Claims;
+using Microsoft.Win32;
 
 namespace cotf;
 
@@ -80,6 +84,7 @@ public class Game : Direct2D
 	BinaryReader read;
 	FileStream file;
 	DialogBox dialog;
+	DialogBox eula;
 
 	public override void LoadResources()
 	{
@@ -94,27 +99,41 @@ public class Game : Direct2D
 		eq[4].position.X = 1200 / 4;     // 280
 		eq[5].position.X = 2400 / 6;	 // 400
 		eq[6].position.X = 4800 / 8;
-		eq[7].position.X = 9600 / 12;	 // 800
+		eq[7].position.X = 9600 / 12;    // 800
 		for (int i = 0; i < eq.Length; i++)
 		{
 			eq[i].position.Y = height / 2;
 		}
 		if (!init2)
-		{ 
+		{
 			init2 = true;
 			Init();
 		}
+		eula = DialogBox.CreateResource("End-user License Agreement (EULA)", 
+			"The end-user holds no responsiblity over the party this software was purchased from nor the party\n" +
+			"who designed this sofware regarding the functions of this program such as faults that can be claimed\n" +
+			"to damage other software on the user's hardware, the OS (operating system) of the user or the\n" +
+			"hardware this software runs on.\n\n" +
+			"" +
+			"If this software was activated via a product key, the user also agrees not to proliferate the software\n" +
+			"key that was granted upon purchase of this software to other individuals. The key, if delivered upon\n" +
+			"purchase of this software, may be used only by the individual -- the solitary individual that purchased\n" +
+			"this software -- indefinitely and as many times, and on as many machines, as the user owns.\n\n" +
+			"" +
+			"By clicking \"Yes\", you agree to this EULA.");
+		eula.save.text = "Yes";
+		eula.load.text = "No";
+		eula.cancel.active = false;
 		dialog = DialogBox.CreateResource();
 	}
-
 	public override void Update()
 	{
 		if (!init)
 		{
 			init = true;
 			WindowHandle = Utility.FindWindowByCaption(IntPtr.Zero, "SharpDX Render Window");
+			eula.Show();
 		}
-
 		Utility.RECT window = default;
 		Utility.GetWindowRect(WindowHandle, ref window);
 		var mouse = System.Windows.Forms.Control.MousePosition;
@@ -130,7 +149,6 @@ public class Game : Direct2D
 		{
 			Environment.Exit(1);
 		}
-
 		if (CotF_dev.Keyboard.IsKeyPressed((int)VIRTUALKEY.VK_R))
 		{
 			if (!initCapture && capture.CaptureState != CaptureState.Capturing && capture.CaptureState != CaptureState.Starting && capture.CaptureState != CaptureState.Stopping)
@@ -151,33 +169,33 @@ public class Game : Direct2D
 			Initialize();
 		}
 		else if (
-				Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_1) ||
-				Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_2) ||
-				Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_3) ||
-				Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_4) ||
-				Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_5) ||
-				Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_6) ||
-				Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_7) ||
-				Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_8) ||
-				Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_9)
-		){ 	 // save
+			Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_1) ||
+			Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_2) ||
+			Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_3) ||
+			Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_4) ||
+			Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_5) ||
+			Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_6) ||
+			Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_7) ||
+			Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_8) ||
+			Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_9)
+		){   // save
 			try
 			{
 				string name = "Stored_parameters_" + keyPress + ".sav";
 				string message = "Here are the options for save/load.\nYou could manually delete the saved settings files, \nor use this instead to access data.\n\n" +
-					"Save = save/overwrite the " + name + " file.\n" +
-					"Load = load the " + name + "file.\n" +
-					"Cancel = do nothing.";
+				"Save = save/overwrite the " + name + " file.\n" +
+				"Load = load the " + name + "file.\n" +
+				"Cancel = do nothing.";
 				dialog.Show("Save/load dialog", message);
 			}
-			catch (Exception e) 
-			{ 
-				dialog.Show("Exception thrown", e.Message); 
-				return; 
+			catch (Exception e)
+			{
+				dialog.Show("Exception thrown", e.Message);
+				return;
 			}
 		}
+		eula.Update();
 		dialog.Update();
-
 		for (int i = 0; i < eq.Length; i++)
 		{
 			if (hold.All(t => !t) && LeftMouse() && eq[i].hitbox(size).Contains(MouseScreen))
@@ -354,6 +372,7 @@ public class Game : Direct2D
 						}
 						buffered.Graphics.DrawString("Commands: R to start recording, S to stop recording, X to reset, 1-9 to save, ESC to close", new Font("Helvetica", 12f), Brushes.Gray, new Point(0, height - 24));
 						dialog.DrawDialog(buffered.Graphics);
+						eula.DrawDialog(buffered.Graphics);
 					}
 					else this.TitleScreen(buffered.Graphics);
 				}
@@ -484,6 +503,7 @@ public class Game : Direct2D
 			{
 				load?.Update();
 				save?.Update();
+				if (cancel.active)
 				cancel?.Update();
 			}
 		}
@@ -496,6 +516,7 @@ public class Game : Direct2D
 				graphics.DrawString(message, new Font("Helvetica", 12f), Brushes.White, new Point(left, top + padding));
 				load?.Draw(graphics);
 				save?.Draw(graphics);
+				if (cancel.active)
 				cancel?.Draw(graphics);
 			}
 		}
@@ -512,6 +533,7 @@ public class Game : Direct2D
 	}
 	public class Button
 	{
+		public bool active = true;
 		public int margin = 2;
 		int top, right, bottom, left;
 		public string? text;
@@ -537,6 +559,18 @@ public class Game : Direct2D
 				{
 					switch (text)
 					{
+						case "Yes":
+							RegistryKey? reg = Registry.CurrentUser?.OpenSubKey("Software", writable: true);
+							RegistryKey? key = reg?.CreateSubKey("Circle Prefect").CreateSubKey("seer");
+							if (bool.TryParse(key?.GetValue("register", false).ToString(), out var flag))
+							{
+								key.SetValue("register", true);
+							}
+							reg?.Close();
+							goto default;
+						case "No":
+							Environment.Exit(1);
+							break;
 						case "Load":
 							file = new FileStream("Stored_parameters_" + keyPress.ToString() + ".sav", FileMode.Open);
 							read = new BinaryReader(file);

@@ -1,4 +1,4 @@
-﻿0.0.25.0
+﻿0.0.27.0
 
 Changelog
 0.0.11.0 -> 0.0.12.0
@@ -22,3 +22,7 @@ Added
 -> Save and load dialog
 Change
 -> Made save/load dialog more clear
+
+0.0.25.0 -> 0.0.27.0
+Added
+-> EULA
