@@ -34,6 +34,10 @@ using Microsoft.VisualBasic.ApplicationServices;
 using System.ComponentModel.Design;
 using System.Security.Claims;
 using Microsoft.Win32;
+using SharpDX.DXGI;
+using System.Security.Policy;
+using tUserInterface.ModUI;
+using ListBox = tUserInterface.ModUI.ListBox;
 
 namespace cotf;
 
@@ -66,6 +70,7 @@ public class Game : Direct2D
 	static int width = 800, height = 400;
 	int size = 30;
 	int scale => 9600 / width;
+	int monitorKeyPress;
 	internal static int keyPress;
 	bool showTitle = false;
 	bool mainMenu = true;
@@ -73,7 +78,10 @@ public class Game : Direct2D
 	bool init2 = false;
 	bool init3 = false;
 	bool initCapture = false;
+	bool initMonitor = false;
 	bool[] hold = new bool[8];
+	bool livePlayBack = false;
+	bool isRecording = false;
 	internal static EQ[] eq = new EQ[8];
 	Pen pen = new Pen(Color.GreenYellow, 4f);
 	internal static Point MouseScreen;
@@ -83,8 +91,15 @@ public class Game : Direct2D
 	BinaryWriter write;
 	BinaryReader read;
 	FileStream file;
-	DialogBox dialog;
-	DialogBox eula;
+	DialogBox? dialog;
+	DialogBox? eula;
+	DialogBox? devices;
+	BufferedWaveProvider bufferGated;
+	WasapiOut monitorAudio;
+	MMDevice deviceCapture;
+	MMDevice deviceRender;
+	Scroll scrollOne;
+	Scroll scrollTwo;
 
 	public override void LoadResources()
 	{
@@ -92,12 +107,16 @@ public class Game : Direct2D
 
 	public override void Initialize()
 	{
+		MMDeviceEnumerator enumerator = new MMDeviceEnumerator();
+		deviceRender = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Communications);
+		deviceCapture = enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Multimedia);
+
 		eq[0].position.X = (int)(100 * 0.82M);
-		eq[1].position.X = 150  / 1;
-		eq[2].position.X = 400  / 2;
-		eq[3].position.X = 800  / 3;
+		eq[1].position.X = 150 / 1;
+		eq[2].position.X = 400 / 2;
+		eq[3].position.X = 800 / 3;
 		eq[4].position.X = 1200 / 4;     // 280
-		eq[5].position.X = 2400 / 6;	 // 400
+		eq[5].position.X = 2400 / 6;     // 400
 		eq[6].position.X = 4800 / 8;
 		eq[7].position.X = 9600 / 12;    // 800
 		for (int i = 0; i < eq.Length; i++)
@@ -109,7 +128,7 @@ public class Game : Direct2D
 			init2 = true;
 			Init();
 		}
-		eula = DialogBox.CreateResource("End-user License Agreement (EULA)", 
+		eula = DialogBox.CreateResource("End-user License Agreement (EULA)",
 			"The end-user holds no responsiblity over the party this software was purchased from nor the party\n" +
 			"who designed this sofware regarding the functions of this program such as faults that can be claimed\n" +
 			"to damage other software on the user's hardware, the OS (operating system) of the user or the\n" +
@@ -124,15 +143,60 @@ public class Game : Direct2D
 		eula.save.text = "Yes";
 		eula.load.text = "No";
 		eula.cancel.active = false;
+		
 		dialog = DialogBox.CreateResource();
+
+		devices = DialogBox.CreateResource("Select Input and Output Devices", 
+			"Use the up and down arrow keys when the mouse is positions over the options to scroll\n" +
+			"The first list is input (capture), and the second list is output (render):");
+		devices.save.text = "Back";
+		devices.load.active = false;
+		devices.cancel.active = false;
+
+		RecollectDeviceList();
 	}
+
+	private void RecollectDeviceList()
+	{
+		int left = 20;
+		
+		MMDeviceEnumerator enumerator = new MMDeviceEnumerator();
+		MMDeviceCollection input = enumerator.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active);
+		MMDeviceCollection output = enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
+
+		var list1 = new tUserInterface.ModUI.Button[input.Count];
+		for (int i = 0; i < list1.Length; i++)
+		{
+			list1[i] = new tUserInterface.ModUI.Button(input[i].DeviceFriendlyName, new Rectangle(0, 0, 300, 14), Brushes.Black);
+		}
+		var list2 = new tUserInterface.ModUI.Button[output.Count];
+		for (int i = 0; i < list2.Length; i++)
+		{
+			list2[i] = new tUserInterface.ModUI.Button(output[i].DeviceFriendlyName, new Rectangle(0, 0, 300, 14), Brushes.Black);
+		}
+
+		var _one = new Rectangle(left, 100, 300, 100);
+		devices.inputDevices = new ListBox(_one = new Rectangle(left, 100, 300, 100), scrollOne = new Scroll(_one), list1);
+		var _two = new Rectangle(left, 220, 300, 100);
+		devices.outputDevices = new ListBox(_one = new Rectangle(left, 200, 300, 100), scrollTwo = new Scroll(_two), list2);
+	}
+
 	public override void Update()
 	{
 		if (!init)
 		{
 			init = true;
 			WindowHandle = Utility.FindWindowByCaption(IntPtr.Zero, "SharpDX Render Window");
-			eula.Show();
+			RegistryKey reg = Registry.CurrentUser.OpenSubKey("Software", writable: true);
+			RegistryKey key = reg.CreateSubKey("Circle Prefect").CreateSubKey("farsight");
+			if (bool.TryParse(key.GetValue("register", false).ToString(), out var flag))
+			{
+				if (!flag)
+				{
+					eula?.Show();
+				}
+			}
+			reg.Close();
 		}
 		Utility.RECT window = default;
 		Utility.GetWindowRect(WindowHandle, ref window);
@@ -149,11 +213,13 @@ public class Game : Direct2D
 		{
 			Environment.Exit(1);
 		}
+		if (!showTitle) return;
 		if (CotF_dev.Keyboard.IsKeyPressed((int)VIRTUALKEY.VK_R))
 		{
 			if (!initCapture && capture.CaptureState != CaptureState.Capturing && capture.CaptureState != CaptureState.Starting && capture.CaptureState != CaptureState.Stopping)
 			{
 				capture.StartRecording();
+				//isRecording = true;
 			}
 		}
 		else if (CotF_dev.Keyboard.IsKeyPressed((int)VIRTUALKEY.VK_S))
@@ -161,15 +227,15 @@ public class Game : Direct2D
 			if (initCapture && capture.CaptureState == CaptureState.Capturing)
 			{
 				initCapture = false;
-				capture.StopRecording();
+				//isRecording = false;
 			}
 		}
 		else if (CotF_dev.Keyboard.IsKeyPressed((int)VIRTUALKEY.VK_X))
 		{
 			Initialize();
 		}
-		else if (
-			Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_1) ||
+		else if (!dialog.active &&
+		   (Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_1) ||
 			Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_2) ||
 			Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_3) ||
 			Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_4) ||
@@ -177,7 +243,7 @@ public class Game : Direct2D
 			Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_6) ||
 			Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_7) ||
 			Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_8) ||
-			Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_9)
+			Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_9))
 		){   // save
 			try
 			{
@@ -186,16 +252,70 @@ public class Game : Direct2D
 				"Save = save/overwrite the " + name + " file.\n" +
 				"Load = load the " + name + "file.\n" +
 				"Cancel = do nothing.";
-				dialog.Show("Save/load dialog", message);
+				dialog?.Show("Save/load dialog", message);
 			}
 			catch (Exception e)
 			{
-				dialog.Show("Exception thrown", e.Message);
+				dialog?.Show("Exception thrown", e.Message);
 				return;
 			}
 		}
-		eula.Update();
-		dialog.Update();
+		else if (monitorKeyPress == 0 && Keyboard.IsKeyPressed((int)VIRTUALKEY.VK_P))
+		{
+			monitorKeyPress++;
+			if (monitorAudio.PlaybackState == PlaybackState.Stopped)
+			{ 
+				livePlayBack = true;
+				monitorAudio.Play();
+			}
+			else if (monitorAudio.PlaybackState == PlaybackState.Playing)
+			{
+				livePlayBack = false;
+				monitorAudio.Stop();
+			}
+		}
+		else if (devices != null && !devices.active && Keyboard.IsKeyPressed((int)VIRTUALKEY.VK_D))
+		{
+			capture.StopRecording();
+			RecollectDeviceList();
+			devices?.Show();
+		}
+		if (!Keyboard.IsKeyPressed((int)VIRTUALKEY.VK_P))
+		{
+			monitorKeyPress = 0;
+		}
+
+		eula?.Update();
+		dialog?.Update();
+		devices?.Update();
+
+		//	Listbox not exactly working very well
+		if (devices.active)
+		{
+			foreach (var button in devices.inputDevices.item)
+			{
+				if (button.LeftClick(MouseScreen, LeftMouse()))
+				{
+					if (deviceCapture != null)
+						deviceCapture.Dispose();
+					deviceCapture = new MMDeviceEnumerator().EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active).First(t => t.DeviceFriendlyName == button.text); 
+					devices.Close();
+					Init();
+				}
+			}
+			foreach (var button in devices.outputDevices.item)
+			{
+				if (button.LeftClick(MouseScreen, LeftMouse()))
+				{	
+					if (deviceRender != null)
+						deviceRender.Dispose();
+					deviceRender = new MMDeviceEnumerator().EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active).First(t => t.DeviceFriendlyName == button.text); 
+					devices.Close();
+					Init();
+				}
+			}
+		}
+		
 		for (int i = 0; i < eq.Length; i++)
 		{
 			if (hold.All(t => !t) && LeftMouse() && eq[i].hitbox(size).Contains(MouseScreen))
@@ -207,7 +327,7 @@ public class Game : Direct2D
 				hold[i] = false;
 			}
 			if (hold[i])
-			{ 
+			{
 				var rec = Interface.Drag(eq[i].hitbox(size), MouseScreen, LeftMouse());
 				eq[i].position = new Point(rec.X, rec.Y);
 				if (eq[0].position.X <= size / 2)
@@ -267,43 +387,71 @@ public class Game : Direct2D
 
 	public void Init()
 	{
-		var input = new MMDeviceEnumerator().GetDefaultAudioEndpoint(DataFlow.Capture, Role.Multimedia);
-		capture = new WasapiCapture(input, false);
+		if (capture != null)
+		{
+			capture.StopRecording();
+			capture.Dispose();
+		}
+		if (monitorAudio != null)
+		{
+			monitorAudio.Stop();
+			monitorAudio.Dispose();
+		}
+		if (bufferGated != null)
+		{
+			bufferGated.ClearBuffer();
+		}
+		capture = new WasapiCapture(deviceCapture, false);
 		capture.ShareMode = AudioClientShareMode.Shared;
 		capture.DataAvailable += Capture_DataAvailable;
 		capture.RecordingStopped += Capture_RecordingStopped;
+		bufferGated = new BufferedWaveProvider(capture.WaveFormat);
+		bufferGated.DiscardOnBufferOverflow = true;
+		monitorAudio = new WasapiOut(deviceRender, AudioClientShareMode.Shared, useEventSync: false, 0);
 	}
 
 	private void Capture_RecordingStopped(object? sender, StoppedEventArgs e)
 	{
 		// stop recording here
-		record.Close();
+		record?.Close();
 		initCapture = false;
 	}
 
-	private void Capture_DataAvailable(object sender, WaveInEventArgs e)
+	private void Capture_DataAvailable(object? sender, WaveInEventArgs e)
 	{
 		if (!initCapture)
 		{
 			initCapture = true;
-			InitWriter();
+			//InitWriter();
+		}
+		if (!initMonitor)
+		{
+			initMonitor = true;
+			monitorAudio.Init(bufferGated);
 		}
 		float[] read = new float[e.BytesRecorded];
-        Buffer.BlockCopy(e.Buffer, 0, read, 0, e.BytesRecorded);
-        for (int j = 0; j < read.Length; j++)
-        {
-            for (int n = 0; n < filter.Length; n++)
-            {
-                if (filter[n] != null)
-                {
-                    read[j] = filter[n].Transform(read[j]);
-                }
-            }
-        }
-        byte[] buffer = new byte[e.BytesRecorded];
-        Buffer.BlockCopy(read, 0, buffer, 0, e.BytesRecorded);
+		Buffer.BlockCopy(e.Buffer, 0, read, 0, e.BytesRecorded);
+		for (int j = 0; j < read.Length; j++)
+		{
+			for (int n = 0; n < filter.Length; n++)
+			{
+				if (filter[n] != null)
+				{
+					read[j] = filter[n].Transform(read[j]);
+				}
+			}
+		}
+		byte[] buffer = new byte[e.BytesRecorded];
+		Buffer.BlockCopy(read, 0, buffer, 0, e.BytesRecorded);
+		bufferGated.AddSamples(buffer, 0, e.BytesRecorded);
+		
+		//DataHandler(read);
+
 		// record here
-		record.Write(buffer, 0, buffer.Length);
+		if (isRecording)
+		{ 
+			record.Write(buffer, 0, buffer.Length);
+		}
 
 		// interpret as 16 bit audio
 		for (int index = 0; index < e.BytesRecorded; index += 2)
@@ -311,7 +459,7 @@ public class Game : Direct2D
 			float sample = (float)((e.Buffer[index + 1] << 8) |
 									e.Buffer[index + 0]);
 			// to floating point
-			float sample32 = sample/32768f;
+			float sample32 = sample / 32768f;
 			// absolute value 
 			if (sample32 < 0) sample32 = -sample32;
 			// is this the max value?
@@ -319,6 +467,22 @@ public class Game : Direct2D
 		}
 	}
 
+	private void DataHandler(float[] samples)
+	{
+		for (int i = 0; i < samples.Length; i += 2)
+		{
+			byte[] liveCopy = new byte[2]
+			{
+				(byte)((uint)(samples[i]     * 2.1474836E+09f) >> 16),
+				(byte)((uint)(samples[i + 1] * 2.1474836E+09f) >> 24)
+			};
+			if (livePlayBack)
+			{
+				bufferGated.AddSamples(liveCopy, 0, liveCopy.Length);
+				bufferGated.BufferLength = 2;
+			}
+		}
+	}
 
 	private void InitWriter()
 	{
@@ -339,7 +503,7 @@ public class Game : Direct2D
 				{
 					if (!mainMenu)
 					{
-						buffered.Graphics.FillRectangle(Brushes.Black, new Rectangle(0, 0, width, height));
+						buffered.Graphics.FillRectangle(new System.Drawing.SolidBrush(Color.FromArgb(30, 30, 30)), new Rectangle(0, 0, width, height));
 						buffered.Graphics.DrawRectangle(Pens.White, 0, 0, 1, 1);
 						buffered.Graphics.FillRectangle(Brushes.Green, new Rectangle(0, height - 24, (int)(width * max), 24));
 						Point[] point = new Point[]
@@ -362,17 +526,18 @@ public class Game : Direct2D
 							buffered.Graphics.DrawString((i + 1).ToString(), new Font("Helvetica", 12f), Brushes.Gray, eq[i].hitbox(size).Left, eq[i].hitbox(size).Top);
 							buffered.Graphics.DrawString($"{eq[i].Frequency()}, {Math.Round(eq[i].Gain(height), 2)}", new Font("Helvetica", 12f), Brushes.Gray, eq[i].hitbox(size).Left, eq[i].hitbox(size).Bottom);
 						}
-						if (initCapture)
-						{ 
+						if (capture.CaptureState == CaptureState.Capturing)
+						{
 							buffered.Graphics.DrawString("Recording on", new Font("Helvetica", 18f), Brushes.White, new Point(0, height - 50));
 						}
 						else
 						{
 							buffered.Graphics.DrawString("Recording off", new Font("Helvetica", 18f), Brushes.Gray, new Point(0, height - 50));
 						}
-						buffered.Graphics.DrawString("Commands: R to start recording, S to stop recording, X to reset, 1-9 to save, ESC to close", new Font("Helvetica", 12f), Brushes.Gray, new Point(0, height - 24));
-						dialog.DrawDialog(buffered.Graphics);
-						eula.DrawDialog(buffered.Graphics);
+						buffered.Graphics.DrawString("Commands: R to start capture, D to stop capture, X to reset, P to toggle monitor, D for devices, 1-9 to save, ESC to close", new Font("Helvetica", 10f), Brushes.Gray, new Point(0, height - 24));
+						dialog?.DrawDialog(buffered.Graphics);
+						eula?.DrawDialog(buffered.Graphics);
+						devices?.DrawDialog(buffered.Graphics);
 					}
 					else this.TitleScreen(buffered.Graphics);
 				}
@@ -454,7 +619,7 @@ public class Game : Direct2D
 	}
 
 	public struct EQ
-	{																	 
+	{
 		public int Frequency(int width = 800, int maxFreq = 9600) => (int)(X * (maxFreq / width) * ((float)X / width));
 		public float Gain(float height = 400) => (float)(position.Y - height / 2f) / height * -2f * 10f;
 		public int X => position.X;
@@ -465,12 +630,14 @@ public class Game : Direct2D
 
 	public class DialogBox
 	{
-		public bool active; 
+		public bool active;
 		public bool closed;
 		public int width, height, left, top, padding;
 		public string? heading;
 		public string? message;
 		public Button? load, save, cancel;
+		public ListBox? inputDevices;
+		public ListBox? outputDevices;
 		public static DialogBox CreateResource()
 		{
 			var box = new DialogBox();
@@ -501,10 +668,16 @@ public class Game : Direct2D
 		{
 			if (active)
 			{
-				load?.Update();
-				save?.Update();
-				if (cancel.active)
-				cancel?.Update();
+				if (load != null && load.active)
+					load?.Update();
+				if (save != null && save.active)
+					save?.Update();
+				if (cancel != null && cancel.active)
+					cancel?.Update();
+				if (inputDevices != null)
+					inputDevices.Update(MouseScreen, LeftMouse());
+				if (outputDevices != null)
+					outputDevices.Update(MouseScreen, LeftMouse());
 			}
 		}
 		public void DrawDialog(Graphics graphics)
@@ -514,15 +687,32 @@ public class Game : Direct2D
 				graphics.FillRectangle(Brushes.DarkGray, 0, 0, width, height);
 				graphics.DrawString(heading, new Font("Helvetica", 14f), Brushes.White, new Point(left, top));
 				graphics.DrawString(message, new Font("Helvetica", 12f), Brushes.White, new Point(left, top + padding));
-				load?.Draw(graphics);
-				save?.Draw(graphics);
-				if (cancel.active)
-				cancel?.Draw(graphics);
+				if (load != null && load.active)
+					load?.Draw(graphics);
+				if (save != null && save.active)
+					save?.Draw(graphics);
+				if (cancel != null && cancel.active)
+					cancel?.Draw(graphics);
+				
+				if (inputDevices != null)
+				{
+					inputDevices.DrawItemsNoIcon(graphics, MouseScreen, new Font("Helvetica", 12f));
+					inputDevices.scroll.Draw(graphics, Brushes.White);
+				}
+				if (outputDevices != null)
+				{
+					outputDevices.DrawItemsNoIcon(graphics, MouseScreen, new Font("Helvetica", 12f));
+					outputDevices.scroll.Draw(graphics, Brushes.White);
+				}
 			}
 		}
 		public void Show()
 		{
 			active = true;
+		}
+		public void Close()
+		{
+			active = false;
 		}
 		public void Show(string heading, string message)
 		{
@@ -554,7 +744,7 @@ public class Game : Direct2D
 		public void Update()
 		{
 			if (parent != null && parent.active)
-			{ 
+			{
 				if (LeftMouse() && hitbox.Contains(Game.MouseScreen))
 				{
 					switch (text)
@@ -596,16 +786,16 @@ public class Game : Direct2D
 							goto default;
 						default:
 							if (parent != null)
-							parent.active = false;
+								parent.active = false;
 							break;
 					}
 				}
 			}
 		}
 		public void Draw(Graphics graphics)
-		{		   
+		{
 			if (parent != null && parent.active)
-			{ 
+			{
 				graphics.FillRectangle(Brushes.White, hitbox = new Rectangle(left + margin, top + margin - 32, hitbox.Width, hitbox.Height));
 				graphics.DrawString(text, new Font("Helvetica", 11f), Brushes.Black, new Point(left + margin, top + margin - 32));
 			}

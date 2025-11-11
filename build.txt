@@ -1,4 +1,4 @@
-﻿0.0.27.0
+﻿0.0.34.0
 
 Changelog
 0.0.11.0 -> 0.0.12.0
@@ -26,3 +26,13 @@ Change
 0.0.25.0 -> 0.0.27.0
 Added
 -> EULA
+
+0.0.27.0 -> 0.0.34.0
+Added
+-> Device routing dialog with list boxes
+Removed
+-> The recording feature in exchange for live playback with device routing
+Fixed
+-> EULA dialog was displaying repeatedly each software start
+Changed
+-> Sorted out some of the options text line
