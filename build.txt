@@ -1,4 +1,4 @@
-﻿0.0.34.0
+﻿0.0.45.0
 
 Changelog
 0.0.11.0 -> 0.0.12.0
@@ -36,3 +36,23 @@ Fixed
 -> EULA dialog was displaying repeatedly each software start
 Changed
 -> Sorted out some of the options text line
+
+0.0.34.0 -> 0.0.36.0
+Added
+-> Put the recording feature back
+
+0.0.36.0 -> 0.0.37.0
+Fixed
+-> Recording error
+
+0.0.37.0 -> 0.0.42.0
+Changed
+-> Removed text commands to run the program
+Added
+-> Buttons to replace the text commands
+Fixed
+-> Registering hold instead of click
+
+0.0.42.0 -> 0.0.45.0
+Fixed
+-> Monitor latency

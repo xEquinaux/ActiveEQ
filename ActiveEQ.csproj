@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 	<UseWindowsForms>true</UseWindowsForms>
+	<Platforms>AnyCPU;x86</Platforms>
   </PropertyGroup>
 
   <ItemGroup>
@@ -35,7 +36,7 @@
       <HintPath>lib\NAudio.WinMM.dll</HintPath>
     </Reference>
     <Reference Include="REWD">
-      <HintPath>..\..\..\repos\new\REWD\bin\Debug\net9.0-windows7.0\REWD.dll</HintPath>
+      <HintPath>lib\REWD.dll</HintPath>
     </Reference>
     <Reference Include="SharpDX">
       <HintPath>..\..\..\repos\new\REWD\bin\Debug\net9.0-windows7.0\SharpDX.dll</HintPath>

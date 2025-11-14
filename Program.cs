@@ -66,51 +66,56 @@ public class Game : Direct2D
 		Instance = this;
 	}
 
+	static string saveFileName = "0";
 	float max = 0;
 	static int width = 800, height = 400;
+	int buttonWidth = 80;
+	int buttonHeight = 20;
+	int left = 20;
+	int yOff = 50;
+	int xOff = 90;
+	int yOff2 = 30;
 	int size = 30;
 	int scale => 9600 / width;
-	int monitorKeyPress;
+	static int monitorKeyPress;
 	internal static int keyPress;
-	bool showTitle = false;
-	bool mainMenu = true;
-	bool init = false;
-	bool init2 = false;
-	bool init3 = false;
-	bool initCapture = false;
-	bool initMonitor = false;
+	static bool leftMouse;
+	static bool showTitle = false;
+	static bool mainMenu = true;
+	static bool init = false;
+	static bool init2 = false;
+	static bool init3 = false;
+	static bool initCapture = false;
+	static bool initMonitor = false;
 	bool[] hold = new bool[8];
-	bool livePlayBack = false;
-	bool isRecording = false;
+	static bool livePlayBack = false;
+	static bool isRecording = false;
 	internal static EQ[] eq = new EQ[8];
 	Pen pen = new Pen(Color.GreenYellow, 4f);
 	internal static Point MouseScreen;
 	BiQuadFilter[] filter = new BiQuadFilter[8];
-	WasapiCapture capture;
-	WaveFileWriter record;
-	BinaryWriter write;
-	BinaryReader read;
-	FileStream file;
-	DialogBox? dialog;
-	DialogBox? eula;
-	DialogBox? devices;
-	BufferedWaveProvider bufferGated;
-	WasapiOut monitorAudio;
-	MMDevice deviceCapture;
-	MMDevice deviceRender;
-	Scroll scrollOne;
-	Scroll scrollTwo;
+	static WasapiCapture? capture;
+	static WaveFileWriter? record;
+	static BinaryWriter? write;
+	static BinaryReader? read;
+	static FileStream? file;
+	static DialogBox? dialog;
+	static DialogBox? eula;
+	static DialogBox? devices;
+	static BufferedWaveProvider? bufferGated;
+	static WasapiOut? monitorAudio;
+	static MMDevice? deviceCapture;
+	static MMDevice? deviceRender;
+	static Scroll? scrollOne;
+	static Scroll? scrollTwo;
+	static Button[]? selection;
 
 	public override void LoadResources()
 	{
 	}
 
-	public override void Initialize()
+	public void ResetParameters()
 	{
-		MMDeviceEnumerator enumerator = new MMDeviceEnumerator();
-		deviceRender = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Communications);
-		deviceCapture = enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Multimedia);
-
 		eq[0].position.X = (int)(100 * 0.82M);
 		eq[1].position.X = 150 / 1;
 		eq[2].position.X = 400 / 2;
@@ -123,9 +128,31 @@ public class Game : Direct2D
 		{
 			eq[i].position.Y = height / 2;
 		}
+	}
+
+	public override void Initialize()
+	{
+		selection = new Button[]
+		{
+			new Button(ButtonID.Record, "Record", new Rectangle(left, height - yOff2, buttonWidth, buttonHeight)),
+			new Button(ButtonID.Capture, "Capture", new Rectangle(left + xOff, height - yOff2, buttonWidth, buttonHeight)),
+			new Button(ButtonID.Monitor, "Monitor", new Rectangle(left + xOff * 2, height - yOff2, buttonWidth, buttonHeight)),
+			new Button(ButtonID.Devices, "Devices", new Rectangle(left + xOff * 3, height - yOff2, buttonWidth, buttonHeight)),
+			new Button(ButtonID.Reset, "Reset", new Rectangle(left + xOff * 4, height - yOff2, buttonWidth, buttonHeight)),
+			new Button(ButtonID.SaveLoad, "Save/Load", new Rectangle(left + xOff * 5, height - yOff2, buttonWidth, buttonHeight)),
+			new Button(ButtonID.Quit, "Quit", new Rectangle(left + xOff * 6, height - yOff2, buttonWidth, buttonHeight))
+		};
+
+		MMDeviceEnumerator enumerator = new MMDeviceEnumerator();
+		deviceRender = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Communications);
+		deviceCapture = enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Multimedia);
+
+		ResetParameters();
+
 		if (!init2)
 		{
 			init2 = true;
+			Instance = this;
 			Init();
 		}
 		eula = DialogBox.CreateResource("End-user License Agreement (EULA)",
@@ -143,10 +170,10 @@ public class Game : Direct2D
 		eula.save.text = "Yes";
 		eula.load.text = "No";
 		eula.cancel.active = false;
-		
+
 		dialog = DialogBox.CreateResource();
 
-		devices = DialogBox.CreateResource("Select Input and Output Devices", 
+		devices = DialogBox.CreateResource("Select Input and Output Devices",
 			"Use the up and down arrow keys when the mouse is positions over the options to scroll\n" +
 			"The first list is input (capture), and the second list is output (render):");
 		devices.save.text = "Back";
@@ -159,7 +186,7 @@ public class Game : Direct2D
 	private void RecollectDeviceList()
 	{
 		int left = 20;
-		
+
 		MMDeviceEnumerator enumerator = new MMDeviceEnumerator();
 		MMDeviceCollection input = enumerator.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active);
 		MMDeviceCollection output = enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
@@ -186,9 +213,9 @@ public class Game : Direct2D
 		if (!init)
 		{
 			init = true;
-			WindowHandle = Utility.FindWindowByCaption(IntPtr.Zero, "SharpDX Render Window");
+			WindowHandle = Utility.FindWindowByCaption(IntPtr.Zero, "Main Window");
 			RegistryKey reg = Registry.CurrentUser.OpenSubKey("Software", writable: true);
-			RegistryKey key = reg.CreateSubKey("Circle Prefect").CreateSubKey("farsight");
+			RegistryKey key = reg.CreateSubKey("Circle Prefect").CreateSubKey("seer");
 			if (bool.TryParse(key.GetValue("register", false).ToString(), out var flag))
 			{
 				if (!flag)
@@ -204,37 +231,28 @@ public class Game : Direct2D
 		Vector2 point = new Vector2(mouse.X, mouse.Y) - new Vector2(window.Left, window.Top) - new Vector2(5, 30f);
 		MouseScreen = new Point((int)Math.Max(point.X - (float)Game.Position.X, 0f), (int)Math.Max(point.Y - (float)Game.Position.Y, 0f));//  -5 to X coord, -30 to Y coord due to WPF factor
 
-		int keyPress = 0;
-		if (!showTitle && CotF_dev.Keyboard.IsKeyPressed((int)VIRTUALKEY.VK_RETURN))
+		if (!showTitle)
 		{
-			showTitle = true;
-		}
-		if (CotF_dev.Keyboard.IsKeyPressed((int)VIRTUALKEY.VK_ESCAPE))
-		{
-			Environment.Exit(1);
-		}
-		if (!showTitle) return;
-		if (CotF_dev.Keyboard.IsKeyPressed((int)VIRTUALKEY.VK_R))
-		{
-			if (!initCapture && capture.CaptureState != CaptureState.Capturing && capture.CaptureState != CaptureState.Starting && capture.CaptureState != CaptureState.Stopping)
+			if (Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_RETURN))
 			{
-				capture.StartRecording();
-				//isRecording = true;
+				showTitle = true;
 			}
 		}
-		else if (CotF_dev.Keyboard.IsKeyPressed((int)VIRTUALKEY.VK_S))
-		{
-			if (initCapture && capture.CaptureState == CaptureState.Capturing)
+
+
+		if (selection != null)
+		{ 
+			foreach (var item in selection)
 			{
-				initCapture = false;
-				//isRecording = false;
+				item.Update();
 			}
 		}
-		else if (CotF_dev.Keyboard.IsKeyPressed((int)VIRTUALKEY.VK_X))
+		if (monitorKeyPress > 0 && !LeftMouse())
 		{
-			Initialize();
+			monitorKeyPress = 0;
 		}
-		else if (!dialog.active &&
+
+		if (dialog != null && dialog.active &&
 		   (Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_1) ||
 			Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_2) ||
 			Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_3) ||
@@ -244,45 +262,9 @@ public class Game : Direct2D
 			Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_7) ||
 			Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_8) ||
 			Keyboard.IsKeyPressed(keyPress = (int)VIRTUALKEY.VK_9))
-		){   // save
-			try
-			{
-				string name = "Stored_parameters_" + keyPress + ".sav";
-				string message = "Here are the options for save/load.\nYou could manually delete the saved settings files, \nor use this instead to access data.\n\n" +
-				"Save = save/overwrite the " + name + " file.\n" +
-				"Load = load the " + name + "file.\n" +
-				"Cancel = do nothing.";
-				dialog?.Show("Save/load dialog", message);
-			}
-			catch (Exception e)
-			{
-				dialog?.Show("Exception thrown", e.Message);
-				return;
-			}
-		}
-		else if (monitorKeyPress == 0 && Keyboard.IsKeyPressed((int)VIRTUALKEY.VK_P))
-		{
-			monitorKeyPress++;
-			if (monitorAudio.PlaybackState == PlaybackState.Stopped)
-			{ 
-				livePlayBack = true;
-				monitorAudio.Play();
-			}
-			else if (monitorAudio.PlaybackState == PlaybackState.Playing)
-			{
-				livePlayBack = false;
-				monitorAudio.Stop();
-			}
-		}
-		else if (devices != null && !devices.active && Keyboard.IsKeyPressed((int)VIRTUALKEY.VK_D))
-		{
-			capture.StopRecording();
-			RecollectDeviceList();
-			devices?.Show();
-		}
-		if (!Keyboard.IsKeyPressed((int)VIRTUALKEY.VK_P))
-		{
-			monitorKeyPress = 0;
+		)
+		{   // save
+			saveFileName = "Stored_parameters_" + keyPress + ".sav";
 		}
 
 		eula?.Update();
@@ -290,7 +272,7 @@ public class Game : Direct2D
 		devices?.Update();
 
 		//	Listbox not exactly working very well
-		if (devices.active)
+		if (devices != null && devices.active)
 		{
 			foreach (var button in devices.inputDevices.item)
 			{
@@ -298,7 +280,7 @@ public class Game : Direct2D
 				{
 					if (deviceCapture != null)
 						deviceCapture.Dispose();
-					deviceCapture = new MMDeviceEnumerator().EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active).First(t => t.DeviceFriendlyName == button.text); 
+					deviceCapture = new MMDeviceEnumerator().EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active).First(t => t.DeviceFriendlyName == button.text);
 					devices.Close();
 					Init();
 				}
@@ -306,16 +288,16 @@ public class Game : Direct2D
 			foreach (var button in devices.outputDevices.item)
 			{
 				if (button.LeftClick(MouseScreen, LeftMouse()))
-				{	
+				{
 					if (deviceRender != null)
 						deviceRender.Dispose();
-					deviceRender = new MMDeviceEnumerator().EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active).First(t => t.DeviceFriendlyName == button.text); 
+					deviceRender = new MMDeviceEnumerator().EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active).First(t => t.DeviceFriendlyName == button.text);
 					devices.Close();
 					Init();
 				}
 			}
 		}
-		
+
 		for (int i = 0; i < eq.Length; i++)
 		{
 			if (hold.All(t => !t) && LeftMouse() && eq[i].hitbox(size).Contains(MouseScreen))
@@ -346,32 +328,6 @@ public class Game : Direct2D
 				{
 					eq[i].position.Y = 0;
 				}
-				/*	Movement limit
-				if (i == 0)
-				{
-					if (eq[0].position.X >= eq[1].position.X)
-					{
-						eq[0].position.X = eq[1].position.X;
-					}
-				}
-				else if (i == eq.Length - 1)
-				{
-					if (eq[eq.Length - 1].position.X <= eq[eq.Length - 2].position.X)
-					{
-						eq[eq.Length - 1].position.X = eq[eq.Length - 2].position.X;
-					}
-				}
-				else if (i > 0 && i < eq.Length - 1)
-				{
-					if (eq[i].position.X >= eq[i + 1].position.X - size / 2)
-					{
-						eq[i].position.X = eq[i + 1].position.X - size / 2;
-					}
-					if (eq[i].position.X <= eq[i - 1].position.X + size / 2)
-					{
-						eq[i].position.X = eq[i - 1].position.X + size / 2;
-					}
-				} */
 			}
 		}
 
@@ -419,15 +375,10 @@ public class Game : Direct2D
 
 	private void Capture_DataAvailable(object? sender, WaveInEventArgs e)
 	{
-		if (!initCapture)
-		{
-			initCapture = true;
-			//InitWriter();
-		}
 		if (!initMonitor)
 		{
 			initMonitor = true;
-			monitorAudio.Init(bufferGated);
+			monitorAudio?.Init(bufferGated);
 		}
 		float[] read = new float[e.BytesRecorded];
 		Buffer.BlockCopy(e.Buffer, 0, read, 0, e.BytesRecorded);
@@ -443,14 +394,30 @@ public class Game : Direct2D
 		}
 		byte[] buffer = new byte[e.BytesRecorded];
 		Buffer.BlockCopy(read, 0, buffer, 0, e.BytesRecorded);
-		bufferGated.AddSamples(buffer, 0, e.BytesRecorded);
-		
+		if (bufferGated != null)
+		{ 
+			bufferGated.BufferLength = e.BytesRecorded;
+			if (livePlayBack)
+			{
+				bufferGated.AddSamples(buffer, 0, e.BytesRecorded);
+			}
+			else
+			{
+				bufferGated.ClearBuffer();
+			}
+		}
+
 		//DataHandler(read);
 
 		// record here
 		if (isRecording)
-		{ 
-			record.Write(buffer, 0, buffer.Length);
+		{
+			if (!initCapture)
+			{
+				initCapture = true;
+				InitWriter();
+			}
+			record?.Write(buffer, 0, buffer.Length);
 		}
 
 		// interpret as 16 bit audio
@@ -504,8 +471,31 @@ public class Game : Direct2D
 					if (!mainMenu)
 					{
 						buffered.Graphics.FillRectangle(new System.Drawing.SolidBrush(Color.FromArgb(30, 30, 30)), new Rectangle(0, 0, width, height));
-						buffered.Graphics.DrawRectangle(Pens.White, 0, 0, 1, 1);
-						buffered.Graphics.FillRectangle(Brushes.Green, new Rectangle(0, height - 24, (int)(width * max), 24));
+						for (int i = 0; i < 5; i++)
+						{ 
+							int offset = 0;
+							int bottomY = -20;
+							buffered.Graphics.DrawLine(new Pen(Color.FromArgb(60, 60, 60), 1f), new Point(0, i * (height / 4)), new Point(width, i * (height / 4)));
+							switch (i)
+							{
+								case 0:
+									buffered.Graphics.DrawString("10 db", new Font("Helvetica", 11f), Brushes.Gray, new Point(0, offset));
+									break;
+								case 1:
+									buffered.Graphics.DrawString("5 db", new Font("Helvetica", 11f), Brushes.Gray, new Point(0, offset + (height / 4 * 1)));
+									break;
+								case 2:
+									buffered.Graphics.DrawString("0 db", new Font("Helvetica", 11f), Brushes.Gray, new Point(0, offset + (height / 4 * 2)));
+									break;
+								case 3:
+									buffered.Graphics.DrawString("-5 db", new Font("Helvetica", 11f), Brushes.Gray, new Point(0, offset + (height / 4 * 3)));
+									break;
+								case 4:
+									buffered.Graphics.DrawString("-10 db", new Font("Helvetica", 11f), Brushes.Gray, new Point(0, bottomY + (height / 4 * 4)));
+									break;
+							}
+						}
+						buffered.Graphics.FillRectangle(Brushes.Green, new Rectangle(0, height - 24, (int)(width * max), 10));
 						Point[] point = new Point[]
 						{
 							new Point(0, height / 2),
@@ -526,15 +516,13 @@ public class Game : Direct2D
 							buffered.Graphics.DrawString((i + 1).ToString(), new Font("Helvetica", 12f), Brushes.Gray, eq[i].hitbox(size).Left, eq[i].hitbox(size).Top);
 							buffered.Graphics.DrawString($"{eq[i].Frequency()}, {Math.Round(eq[i].Gain(height), 2)}", new Font("Helvetica", 12f), Brushes.Gray, eq[i].hitbox(size).Left, eq[i].hitbox(size).Bottom);
 						}
-						if (capture.CaptureState == CaptureState.Capturing)
-						{
-							buffered.Graphics.DrawString("Recording on", new Font("Helvetica", 18f), Brushes.White, new Point(0, height - 50));
+						if (selection != null)
+						{ 
+							foreach (var item in selection)
+							{
+								item.Draw(buffered.Graphics);
+							}
 						}
-						else
-						{
-							buffered.Graphics.DrawString("Recording off", new Font("Helvetica", 18f), Brushes.Gray, new Point(0, height - 50));
-						}
-						buffered.Graphics.DrawString("Commands: R to start capture, D to stop capture, X to reset, P to toggle monitor, D for devices, 1-9 to save, ESC to close", new Font("Helvetica", 10f), Brushes.Gray, new Point(0, height - 24));
 						dialog?.DrawDialog(buffered.Graphics);
 						eula?.DrawDialog(buffered.Graphics);
 						devices?.DrawDialog(buffered.Graphics);
@@ -678,6 +666,18 @@ public class Game : Direct2D
 					inputDevices.Update(MouseScreen, LeftMouse());
 				if (outputDevices != null)
 					outputDevices.Update(MouseScreen, LeftMouse());
+				if (this == dialog)
+				{
+					dialog.message = 
+						"Here are the options for save/load.\n" +
+						"You could manually delete the saved settings files, " +
+						"\nor use this instead to access data.\n" +
+						"Press 1-9 to change which file to save to.\n\n" +
+						"" +
+						"Save = save/overwrite the " + saveFileName + " file.\n" +
+						"Load = load the " + saveFileName + " file.\n" +
+						"Cancel = do nothing.";
+				}
 			}
 		}
 		public void DrawDialog(Graphics graphics)
@@ -693,7 +693,7 @@ public class Game : Direct2D
 					save?.Draw(graphics);
 				if (cancel != null && cancel.active)
 					cancel?.Draw(graphics);
-				
+
 				if (inputDevices != null)
 				{
 					inputDevices.DrawItemsNoIcon(graphics, MouseScreen, new Font("Helvetica", 12f));
@@ -723,7 +723,9 @@ public class Game : Direct2D
 	}
 	public class Button
 	{
+		public bool enabled = false;
 		public bool active = true;
+		public short id;
 		public int margin = 2;
 		int top, right, bottom, left;
 		public string? text;
@@ -741,12 +743,86 @@ public class Game : Direct2D
 			bottom = hitbox.Bottom;
 			left = hitbox.Left;
 		}
+		public Button(short id, string text, Rectangle hitbox)
+		{
+			this.text = text;
+			this.hitbox = hitbox;
+			this.id = id;
+			top = hitbox.Top;
+			right = hitbox.Right;
+			bottom = hitbox.Bottom;
+			left = hitbox.Left;
+		}
 		public void Update()
 		{
-			if (parent != null && parent.active)
+			if ((parent != null && parent.active) || (id != 0 && active))
 			{
-				if (LeftMouse() && hitbox.Contains(Game.MouseScreen))
+				if (monitorKeyPress == 0 && LeftMouse() && hitbox.Contains(Game.MouseScreen))
 				{
+					monitorKeyPress++;
+					switch (id)
+					{
+						default:
+							break;
+						case ButtonID.None:
+							break;
+						case ButtonID.Quit:
+							Environment.Exit(1);
+							return;
+						case ButtonID.Monitor:
+							if (monitorAudio?.PlaybackState == PlaybackState.Stopped)
+							{
+								livePlayBack = true;
+								monitorAudio?.Play();
+							}
+							else if (monitorAudio?.PlaybackState == PlaybackState.Playing)
+							{
+								livePlayBack = false;
+								monitorAudio?.Stop();
+							}
+							enabled = livePlayBack;
+							break;
+						case ButtonID.Capture:
+							if (capture?.CaptureState == CaptureState.Capturing)
+								capture?.StopRecording();
+							else
+							{ 
+								capture?.StartRecording();
+							}
+							enabled = capture?.CaptureState == CaptureState.Starting;
+							break;
+						case ButtonID.Record:
+							isRecording = !isRecording;
+							if (capture?.CaptureState == CaptureState.Capturing)
+							{
+								initCapture = false;
+							}
+							enabled = isRecording;
+							break;
+						case ButtonID.Reset:
+							Instance.ResetParameters();
+							break;
+						case ButtonID.Devices:
+							Instance.RecollectDeviceList();
+							devices?.Show();
+							break;
+						case ButtonID.SaveLoad:
+							try
+							{
+								string name = "Stored_parameters_" + keyPress + ".sav";
+								string message = "Here are the options for save/load.\nYou could manually delete the saved settings files, \nor use this instead to access data.\n\n" +
+								"Save = save/overwrite the " + saveFileName + " file.\n" +
+								"Load = load the " + saveFileName + " file.\n" +
+								"Cancel = do nothing.";
+								dialog?.Show("Save/load dialog", message);
+							}
+							catch (Exception e)
+							{
+								dialog?.Show("Exception thrown", e.Message);
+								return;
+							}
+							break;
+					}
 					switch (text)
 					{
 						case "Yes":
@@ -762,17 +838,20 @@ public class Game : Direct2D
 							Environment.Exit(1);
 							break;
 						case "Load":
-							file = new FileStream("Stored_parameters_" + keyPress.ToString() + ".sav", FileMode.Open);
-							read = new BinaryReader(file);
-							for (int i = 0; i < eq.Length; i++)
+							if (File.Exists(Path.Combine(Directory.GetCurrentDirectory(), saveFileName)))
 							{
-								eq[i].position = new Point(read.ReadInt32(), read.ReadInt32());
+								file = new FileStream(saveFileName, FileMode.Open);
+								read = new BinaryReader(file);
+								for (int i = 0; i < eq.Length; i++)
+								{
+									eq[i].position = new Point(read.ReadInt32(), read.ReadInt32());
+								}
+								read.Dispose();
+								file.Dispose();
 							}
-							read.Dispose();
-							file.Dispose();
 							goto default;
 						case "Save":
-							file = new FileStream("Stored_parameters_" + keyPress.ToString() + ".sav", FileMode.Create);
+							file = new FileStream(saveFileName, FileMode.Create);
 							write = new BinaryWriter(file);
 							for (int i = 0; i < eq.Length; i++)
 							{
@@ -784,6 +863,10 @@ public class Game : Direct2D
 							goto default;
 						case "Cancel":
 							goto default;
+						case "Back":
+							if (devices != null)
+								devices.active = false;
+							break;
 						default:
 							if (parent != null)
 								parent.active = false;
@@ -799,6 +882,23 @@ public class Game : Direct2D
 				graphics.FillRectangle(Brushes.White, hitbox = new Rectangle(left + margin, top + margin - 32, hitbox.Width, hitbox.Height));
 				graphics.DrawString(text, new Font("Helvetica", 11f), Brushes.Black, new Point(left + margin, top + margin - 32));
 			}
+			else if (id != 0)
+			{	 
+				graphics.FillRectangle(enabled ? Brushes.LightBlue : Brushes.White, hitbox = new Rectangle(left + margin, top + margin - 32, hitbox.Width, hitbox.Height));
+				graphics.DrawString(text, new Font("Helvetica", 11f), Brushes.Black, new Point(left + margin, top + margin - 32));
+			}
 		}
+	}
+	public static class ButtonID
+	{
+		public const short
+			None = 0,
+			Record = 1,
+			Monitor = 2,
+			Devices = 3,
+			Quit = 4,
+			SaveLoad = 5,
+			Reset = 6,
+			Capture = 7;
 	}
 }

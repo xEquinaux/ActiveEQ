@@ -129,6 +129,10 @@ namespace tUserInterface.ModUI
                     {
                         item[n].box = box;
                         item[n].Draw(sb, font, MouseScreen, item[n].HoverOver(MouseScreen));
+                        if (item[n].box.Contains(MouseScreen))
+                        {
+                            sb.DrawRectangle(Pens.Blue, item[n].box);
+                        }
                     }
                 }
             }
@@ -422,7 +426,7 @@ namespace tUserInterface.ModUI
         {
             Button.magicPixel = magicPixel;
         }
-        private Rectangle boundCorrect => new Rectangle(box.X - box.Width + offX, box.Y - box.Height * 2 + offY, box.Width, box.Height);
+        public Rectangle boundCorrect => new Rectangle(box.X - box.Width + offX, box.Y - box.Height * 2 + offY, box.Width, box.Height);
         public Brush Select(Point MouseScreen, bool select = true)
         {
             if (select)
@@ -444,11 +448,11 @@ namespace tUserInterface.ModUI
         }
         public bool HoverOver(Point MouseScreen)
         {
-            return boundCorrect.Contains(MouseScreen);
+            return box.Contains(MouseScreen);
         }
         public bool HoverOver(Rectangle bound, Point MouseScreen)
         {
-            return bound.Contains(MouseScreen);
+            return box.Contains(MouseScreen);
         }
         public Button(string text, Rectangle box, Brush color)
         {
